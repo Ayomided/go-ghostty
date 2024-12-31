@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"log"
 	"os"
 	"regexp"
 	"sort"
@@ -18,7 +19,26 @@ const (
 	ESC        = "\033["
 )
 
+var reader = bufio.NewReader(os.Stdin)
+
+func readKey(input chan rune) {
+	for {
+		char, _, err := reader.ReadRune()
+		if err != nil {
+			log.Fatal(err)
+		}
+		input <- char
+	}
+}
+
 func main() {
+	fd := int(os.Stdin.Fd())
+	oldState, err := term.MakeRaw(fd)
+	if err != nil {
+		log.Fatalf("Failed to enable raw mode: %v", err)
+	}
+	defer term.Restore(int(os.Stdin.Fd()), oldState)
+
 	output := termenv.NewOutput(os.Stdout)
 	output.ClearScreen()
 	output.HideCursor()
@@ -26,16 +46,35 @@ func main() {
 	output.AltScreen()
 	defer output.RestoreScreen()
 
-	for num := 1; num <= MAX_FRAMES; num++ {
-		paths := fmt.Sprintf("home/animation_frames/frame_%03d.txt", num)
-		frame, err := readFrame(paths)
-		if err != nil {
-			fmt.Println(err)
-		}
-		renderFrame(frame, 60, *output)
-	}
+	input := make(chan rune, 1)
+	go readKey(input)
 
-	output.ClearScreen()
+	frameIndex := 1
+
+	for {
+		select {
+		case i := <-input:
+			if i == 'q' {
+				term.Restore(int(os.Stdin.Fd()), oldState)
+				output.ShowCursor()
+				output.RestoreScreen()
+				output.ClearScreen()
+				os.Exit(0)
+			}
+		default:
+
+			paths := fmt.Sprintf("home/animation_frames/frame_%03d.txt", frameIndex)
+			frame, err := readFrame(paths)
+			if err != nil {
+				fmt.Println(err)
+			}
+			renderFrame(frame, 24, *output)
+			frameIndex++
+			if frameIndex > MAX_FRAMES {
+				frameIndex = 1
+			}
+		}
+	}
 }
 
 type Frame struct {
@@ -192,7 +231,7 @@ func renderFrame(frame *Frame, fps int, output termenv.Output) {
 				}
 
 				// Apply bold and color to the bold section
-				boldStyled := output.String(line[span.Start:span.End]).Bold().Foreground(termenv.ANSIRed)
+				boldStyled := output.String(line[span.Start:span.End]).Bold().Foreground(termenv.ANSIBlue)
 				buffer.WriteString(boldStyled.String())
 
 				currentPos = span.End
